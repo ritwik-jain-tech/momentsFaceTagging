@@ -11,6 +11,13 @@ export GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-moments-38b77}
 export FACE_RECOGNITION_ENABLED=${FACE_RECOGNITION_ENABLED:-true}
 export BACKGROUND_PROCESSING_ENABLED=${BACKGROUND_PROCESSING_ENABLED:-true}
 
+# Memory optimization settings
+export PYTHONHASHSEED=0
+export PYTHONUNBUFFERED=1
+export MALLOC_TRIM_THRESHOLD_=131072
+export MALLOC_MMAP_THRESHOLD_=131072
+export MALLOC_MMAP_MAX_=65536
+
 # Create models directory
 echo "Creating models directory..."
 mkdir -p /app/models

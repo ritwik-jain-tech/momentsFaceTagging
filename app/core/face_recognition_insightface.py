@@ -62,33 +62,38 @@ class InsightFaceRecognitionService:
         
         logger.info("InsightFace Recognition Service initialized")
     
+    def _cleanup_memory(self):
+        """Clean up memory by forcing garbage collection."""
+        import gc
+        gc.collect()
+    
     def _initialize_model(self):
         """Initialize the InsightFace model with optimal settings."""
         try:
             logger.info("Initializing InsightFace model...")
             
             # Configure InsightFace for production use
-            # Using 'buffalo_l' model for high accuracy
+            # Using 'buffalo_s' model for better memory efficiency
             self.face_app = FaceAnalysis(
-                name='buffalo_l',  # High accuracy model
+                name='buffalo_s',  # Smaller model for better memory usage
                 providers=['CPUExecutionProvider']  # Use CPU for Cloud Run compatibility
             )
             
-            # Prepare the model with optimal detection size
-            self.face_app.prepare(ctx_id=0, det_size=(640, 640))
+            # Prepare the model with smaller detection size for memory efficiency
+            self.face_app.prepare(ctx_id=0, det_size=(320, 320))
             
             logger.info("InsightFace model initialized successfully")
             
         except Exception as e:
             logger.error(f"Failed to initialize InsightFace model: {e}")
-            # Fallback to smaller model if buffalo_l fails
+            # Fallback to even smaller model if buffalo_s fails
             try:
                 logger.info("Trying fallback model...")
                 self.face_app = FaceAnalysis(
-                    name='buffalo_s',  # Smaller model
+                    name='buffalo_m',  # Even smaller model
                     providers=['CPUExecutionProvider']
                 )
-                self.face_app.prepare(ctx_id=0, det_size=(640, 640))
+                self.face_app.prepare(ctx_id=0, det_size=(320, 320))
                 logger.info("Fallback InsightFace model initialized successfully")
             except Exception as fallback_error:
                 logger.error(f"Fallback model also failed: {fallback_error}")
@@ -103,20 +108,20 @@ class InsightFaceRecognitionService:
             logger.info("Initializing InsightFace model on first use...")
             try:
                 self.face_app = FaceAnalysis(
-                    name='buffalo_l',
+                    name='buffalo_s',
                     providers=['CPUExecutionProvider']
                 )
-                self.face_app.prepare(ctx_id=0, det_size=(640, 640))
+                self.face_app.prepare(ctx_id=0, det_size=(320, 320))
                 logger.info("InsightFace model initialized successfully on first use")
             except Exception as e:
                 logger.error(f"Failed to initialize InsightFace model on first use: {e}")
                 # Try fallback model
                 try:
                     self.face_app = FaceAnalysis(
-                        name='buffalo_s',
+                        name='buffalo_m',
                         providers=['CPUExecutionProvider']
                     )
-                    self.face_app.prepare(ctx_id=0, det_size=(640, 640))
+                    self.face_app.prepare(ctx_id=0, det_size=(320, 320))
                     logger.info("Fallback InsightFace model initialized successfully on first use")
                 except Exception as fallback_error:
                     logger.error(f"Fallback model also failed on first use: {fallback_error}")
@@ -236,6 +241,8 @@ class InsightFaceRecognitionService:
                 det_score = face['det_score']
                 logger.info(f"Face {i}: bbox={bbox}, quality={quality:.3f}, det_score={det_score:.3f}")
             
+            # Clean up memory after processing
+            self._cleanup_memory()
             return processed_faces
             
         except Exception as e:
