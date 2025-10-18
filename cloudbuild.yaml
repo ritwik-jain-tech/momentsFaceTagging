@@ -23,7 +23,7 @@ steps:
     - 'managed'
     - '--allow-unauthenticated'
     - '--memory'
-    - '4Gi'
+    - '4096Mi'
     - '--cpu'
     - '2'
     - '--timeout'
@@ -40,6 +40,8 @@ steps:
     - 'GOOGLE_CLOUD_PROJECT=$PROJECT_ID,ENVIRONMENT=production,USE_GPU=false,FACE_RECOGNITION_ENABLED=true,BACKGROUND_PROCESSING_ENABLED=true,PYTHONHASHSEED=0,MALLOC_TRIM_THRESHOLD_=131072'
     - '--cpu-boost'
     - '--startup-cpu-boost'
+    - '--execution-environment'
+    - 'gen2'
 
 # Store images in Container Registry
 images:
