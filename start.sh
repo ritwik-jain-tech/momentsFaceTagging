@@ -24,5 +24,12 @@ mkdir -p /app/models
 
 # Start the application immediately - let it handle model download internally
 echo "Starting FastAPI application..."
+echo "Port: $PORT"
+echo "Environment: $ENVIRONMENT"
+echo "Python version: $(python --version)"
+echo "Working directory: $(pwd)"
+echo "Files in current directory: $(ls -la)"
+
+# Start the application
 exec python main.py
 

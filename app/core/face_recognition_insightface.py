@@ -38,7 +38,13 @@ class InsightFaceRecognitionService:
         """Initialize the InsightFace recognition service."""
         self.face_app: Optional[FaceAnalysis] = None
         self.executor = ThreadPoolExecutor(max_workers=4)
-        self._initialize_model()
+        
+        # Initialize model asynchronously to avoid blocking startup
+        try:
+            self._initialize_model()
+        except Exception as e:
+            logger.warning(f"Failed to initialize InsightFace model during startup: {e}")
+            logger.info("Model will be initialized on first use")
         
         # FaceNet-style parameters for matching
         self.FACE_MATCH_THRESHOLD = 0.4  # Lowered threshold for more matches

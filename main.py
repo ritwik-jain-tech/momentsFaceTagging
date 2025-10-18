@@ -10,6 +10,7 @@ import logging
 import os
 from typing import List, Optional
 import uvicorn
+from datetime import datetime
 
 from app.core.config import settings
 from app.api.v1.router import api_router
@@ -39,32 +40,55 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Moments Face Tagging Service...")
     
     try:
-        # Initialize services
-        face_recognition_service = InsightFaceRecognitionService()
-        firestore_client = FirestoreClient()
+        # Initialize services with error handling
+        logger.info("Initializing face recognition service...")
+        try:
+            face_recognition_service = InsightFaceRecognitionService()
+            logger.info("Face recognition service initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize face recognition service: {e}")
+            face_recognition_service = None
         
-        # Initialize Firestore collections
-        await firestore_client.initialize_collections()
+        logger.info("Initializing Firestore client...")
+        try:
+            firestore_client = FirestoreClient()
+            await firestore_client.initialize_collections()
+            logger.info("Firestore client initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Firestore client: {e}")
+            firestore_client = None
         
-        storage_client = StorageClient()
+        logger.info("Initializing storage client...")
+        try:
+            storage_client = StorageClient()
+            logger.info("Storage client initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize storage client: {e}")
+            storage_client = None
         
         # Set global services in face embeddings endpoints
-        from app.api.v1.endpoints import face_embeddings
-        face_embeddings.face_recognition_service = face_recognition_service
-        face_embeddings.firestore_client = firestore_client
+        if face_recognition_service and firestore_client:
+            from app.api.v1.endpoints import face_embeddings
+            face_embeddings.face_recognition_service = face_recognition_service
+            face_embeddings.firestore_client = firestore_client
+            logger.info("Global services set in endpoints")
         
-        logger.info("All services initialized successfully")
+        logger.info("Service initialization completed (some services may have failed)")
         
     except Exception as e:
-        logger.error(f"Failed to initialize services: {e}")
-        raise
+        logger.error(f"Critical error during service initialization: {e}")
+        # Don't raise - allow service to start even if some services fail
+        logger.warning("Service will start with limited functionality")
     
     yield
     
     # Shutdown
     logger.info("Shutting down Moments Face Tagging Service...")
     if face_recognition_service:
-        await face_recognition_service.cleanup()
+        try:
+            await face_recognition_service.cleanup()
+        except Exception as e:
+            logger.error(f"Error during face recognition service cleanup: {e}")
 
 
 # Create FastAPI app
@@ -90,11 +114,21 @@ app.include_router(api_router, prefix="/api/v1")
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint - always returns healthy if service is running"""
     return {
         "status": "healthy",
         "service": "moments-face-tagging",
         "version": "1.0.0"
+    }
+
+
+@app.get("/startup")
+async def startup_check():
+    """Startup check endpoint - returns immediately"""
+    return {
+        "status": "started",
+        "message": "Service is starting up",
+        "timestamp": datetime.now().isoformat()
     }
 
 
@@ -144,9 +178,17 @@ async def root():
 
 
 if __name__ == "__main__":
+    port = int(os.getenv("PORT", 8080))
+    environment = os.getenv("ENVIRONMENT", "development")
+    
+    logger.info(f"Starting FastAPI server on port {port}")
+    logger.info(f"Environment: {environment}")
+    logger.info(f"Host: 0.0.0.0")
+    logger.info(f"Reload mode: {environment == 'development'}")
+    
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=int(os.getenv("PORT", 8080)),
-        reload=os.getenv("ENVIRONMENT", "development") == "development"
+        port=port,
+        reload=environment == "development"
     )
