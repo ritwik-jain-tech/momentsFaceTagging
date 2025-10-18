@@ -920,8 +920,7 @@ class InsightFaceRecognitionService:
                     quality_criteria = face_quality >= adaptive_quality_threshold
                     logger.info(f"   Adaptive Criteria: similarity >= {adaptive_similarity_threshold:.2f}: {similarity_criteria}, gap >= 0.001 or gap==0: {gap_criteria}, quality >= {adaptive_quality_threshold:.2f}: {quality_criteria}")
                 
-                # Summary for this face
-                logger.info(f"📊 Face {face_idx} SUMMARY: best_similarity={best_similarity:.3f}, second_best={second_best_similarity:.3f}, gap={confidence_gap:.3f}, quality={face_quality:.3f}")
+             
             
             # Limit total matches to prevent over-tagging
             max_matches = 5
