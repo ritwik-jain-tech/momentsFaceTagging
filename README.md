@@ -11,12 +11,24 @@ A production-grade facial recognition service built with FastAPI, InsightFace, a
 - Git repository (GitHub/GitLab)
 
 ### 1. Local Development
+
+#### Option A: Automated Setup (Recommended)
 ```bash
 # Clone and setup
 git clone <your-repo-url>
 cd momentsFaceTagging
 
-# Copy service account key (same as MomentsBackend)
+# Run automated setup script
+./setup-local.sh
+```
+
+#### Option B: Manual Setup
+```bash
+# Clone and setup
+git clone <your-repo-url>
+cd momentsFaceTagging
+
+# Copy service account key (same as MomentsBackend) - DO NOT COMMIT THIS FILE
 cp /path/to/momentsBackend/src/main/resources/serviceAccountKey.json ./serviceAccountKey.json
 
 # Install dependencies
@@ -191,15 +203,22 @@ gcloud builds list --limit=5
 ## 🔒 Security
 
 ### Authentication
-- **Local**: Service account key file
+- **Local**: Service account key file (NOT COMMITTED TO GIT)
 - **Production**: Cloud Run service account
 - **Permissions**: Minimal required roles
 
 ### Best Practices
-- Never commit service account keys
+- **NEVER commit service account keys** - They are in `.gitignore`
 - Use environment variables for configuration
 - Enable audit logging
 - Monitor access patterns
+- Rotate service account keys regularly
+
+### ⚠️ Important Security Notes
+- `serviceAccountKey.json` is in `.gitignore` and should NEVER be committed
+- Copy the service account key from your MomentsBackend project locally
+- Production uses Cloud Run service account (no key files needed)
+- GitHub push protection will block commits containing secrets
 
 ## 🛠️ Development
 
@@ -210,12 +229,13 @@ momentsFaceTagging/
 │   ├── api/v1/endpoints/     # API endpoints
 │   ├── core/                 # Core services
 │   └── models/               # Data models
-├── serviceAccountKey.json    # Service account key (local only)
+├── serviceAccountKey.json    # Service account key (local only, NOT COMMITTED)
 ├── env.local                 # Local environment config
 ├── env.production            # Production environment config
 ├── cloudbuild-trigger.yaml   # CI/CD configuration
 ├── setup-cicd.sh            # Automated setup script
 ├── test-auth.py             # Authentication testing
+├── .gitignore               # Git ignore file (excludes secrets)
 └── README.md                # This file
 ```
 
