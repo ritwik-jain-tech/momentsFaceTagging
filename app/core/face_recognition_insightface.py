@@ -69,7 +69,7 @@ class InsightFaceRecognitionService:
         logger.info("InsightFace Recognition Service initialized")
     
     def _cleanup_memory(self):
-        """Clean up memory by forcing garbage collection."""
+        
         import gc
         gc.collect()
     
