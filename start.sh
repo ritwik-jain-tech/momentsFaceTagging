@@ -11,18 +11,11 @@ export GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-moments-38b77}
 export FACE_RECOGNITION_ENABLED=${FACE_RECOGNITION_ENABLED:-true}
 export BACKGROUND_PROCESSING_ENABLED=${BACKGROUND_PROCESSING_ENABLED:-true}
 
-# Download InsightFace models if not present
-echo "Checking InsightFace models..."
-python -c "
-import insightface
-import os
-model_path = os.getenv('MODEL_PATH', '/app/models')
-if not os.path.exists(model_path):
-    os.makedirs(model_path)
-print('InsightFace models ready')
-"
+# Create models directory
+echo "Creating models directory..."
+mkdir -p /app/models
 
-# Start the application
+# Start the application immediately - let it handle model download internally
 echo "Starting FastAPI application..."
 exec python main.py
 

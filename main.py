@@ -98,6 +98,41 @@ async def health_check():
     }
 
 
+@app.get("/ready")
+async def readiness_check():
+    """Readiness check endpoint - checks if all services are ready"""
+    try:
+        # Check if face recognition service is available
+        face_recognition_ready = face_recognition_service is not None
+        firestore_ready = firestore_client is not None
+        storage_ready = storage_client is not None
+        
+        if face_recognition_ready and firestore_ready and storage_ready:
+            return {
+                "status": "ready",
+                "services": {
+                    "face_recognition": "ready",
+                    "firestore": "ready", 
+                    "storage": "ready"
+                }
+            }
+        else:
+            return {
+                "status": "not_ready",
+                "services": {
+                    "face_recognition": "ready" if face_recognition_ready else "initializing",
+                    "firestore": "ready" if firestore_ready else "initializing",
+                    "storage": "ready" if storage_ready else "initializing"
+                }
+            }
+    except Exception as e:
+        logger.error(f"Readiness check failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
 @app.get("/")
 async def root():
     """Root endpoint"""

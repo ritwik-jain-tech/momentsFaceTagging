@@ -38,6 +38,8 @@ steps:
     - '8080'
     - '--set-env-vars'
     - 'GOOGLE_CLOUD_PROJECT=$PROJECT_ID,ENVIRONMENT=production,USE_GPU=false,FACE_RECOGNITION_ENABLED=true,BACKGROUND_PROCESSING_ENABLED=true'
+    - '--cpu-boost'
+    - '--startup-cpu-boost'
 
 # Store images in Container Registry
 images:

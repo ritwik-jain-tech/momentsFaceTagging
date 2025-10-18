@@ -92,7 +92,35 @@ class InsightFaceRecognitionService:
                 logger.info("Fallback InsightFace model initialized successfully")
             except Exception as fallback_error:
                 logger.error(f"Fallback model also failed: {fallback_error}")
-                raise
+                # Don't raise exception - allow service to start without model
+                # Model will be initialized on first use
+                logger.warning("Service will start without face recognition model. Model will be initialized on first use.")
+                self.face_app = None
+    
+    def _ensure_model_initialized(self):
+        """Ensure the InsightFace model is initialized, initialize if needed."""
+        if self.face_app is None:
+            logger.info("Initializing InsightFace model on first use...")
+            try:
+                self.face_app = FaceAnalysis(
+                    name='buffalo_l',
+                    providers=['CPUExecutionProvider']
+                )
+                self.face_app.prepare(ctx_id=0, det_size=(640, 640))
+                logger.info("InsightFace model initialized successfully on first use")
+            except Exception as e:
+                logger.error(f"Failed to initialize InsightFace model on first use: {e}")
+                # Try fallback model
+                try:
+                    self.face_app = FaceAnalysis(
+                        name='buffalo_s',
+                        providers=['CPUExecutionProvider']
+                    )
+                    self.face_app.prepare(ctx_id=0, det_size=(640, 640))
+                    logger.info("Fallback InsightFace model initialized successfully on first use")
+                except Exception as fallback_error:
+                    logger.error(f"Fallback model also failed on first use: {fallback_error}")
+                    raise Exception("Unable to initialize any InsightFace model")
     
     async def download_image(self, image_url: str) -> np.ndarray:
         """Download and preprocess image with enhanced quality."""
@@ -151,6 +179,9 @@ class InsightFaceRecognitionService:
     def _detect_faces_insightface(self, image: np.ndarray, is_selfie: bool = False) -> List[Dict[str, Any]]:
         """Detect faces using InsightFace with high accuracy."""
         try:
+            # Ensure model is initialized
+            self._ensure_model_initialized()
+            
             # Convert RGB to BGR for InsightFace
             bgr_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
             
