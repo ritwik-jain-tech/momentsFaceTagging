@@ -62,3 +62,4 @@ class HealthResponse(BaseModel):
     service: str = Field(..., description="Service name")
     timestamp: float = Field(..., description="Response timestamp")
 
+

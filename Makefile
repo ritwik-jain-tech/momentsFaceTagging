@@ -56,3 +56,4 @@ quick-test:
 	@echo "Running quick health check..."
 	@curl -f http://localhost:8080/health || echo "Service not running"
 
+

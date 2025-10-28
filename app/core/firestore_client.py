@@ -210,6 +210,8 @@ class FirestoreClient:
                 filter=FieldFilter("eventId", "==", event_id)
             ).where(
                 filter=FieldFilter("status", "==", "APPROVED")
+            ).order_by(
+                "creationTime", direction="DESCENDING"
             )
             
             docs = query.stream()
