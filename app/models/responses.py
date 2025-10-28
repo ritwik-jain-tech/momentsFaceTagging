@@ -51,9 +51,28 @@ class ProcessMomentResponse(BaseModel):
     """Response for moment processing"""
     moment_id: str = Field(..., description="Moment ID")
     event_id: str = Field(..., description="Event ID")
-    user_id: str = Field(..., description="User ID")
+    user_id: Optional[str] = Field(None, description="User ID (optional)")
     processing_result: MomentProcessingResult = Field(..., description="Processing result")
     background_processing_started: bool = Field(..., description="Whether background processing started")
+
+
+class BatchMomentResult(BaseModel):
+    """Result for a single moment in batch processing"""
+    moment_id: str = Field(..., description="Moment ID")
+    success: bool = Field(..., description="Whether processing was successful")
+    message: str = Field(..., description="Result message")
+    face_count: int = Field(0, description="Number of faces detected")
+    matches_found: int = Field(0, description="Number of face matches found")
+    error: Optional[str] = Field(None, description="Error message if processing failed")
+
+
+class ProcessMomentsBatchResponse(BaseModel):
+    """Response for batch moment processing"""
+    total_moments: int = Field(..., description="Total number of moments processed")
+    successful_moments: int = Field(..., description="Number of successfully processed moments")
+    failed_moments: int = Field(..., description="Number of failed moments")
+    results: List[BatchMomentResult] = Field(..., description="Individual results for each moment")
+    processing_time_seconds: float = Field(..., description="Total processing time in seconds")
 
 
 class HealthResponse(BaseModel):
@@ -61,5 +80,4 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="Service status")
     service: str = Field(..., description="Service name")
     timestamp: float = Field(..., description="Response timestamp")
-
 

@@ -3,7 +3,7 @@ Request models for Moments Face Tagging Service
 """
 
 from pydantic import BaseModel, HttpUrl, Field
-from typing import Optional
+from typing import Optional, List
 
 
 class ProcessSelfieRequest(BaseModel):
@@ -52,6 +52,32 @@ class ProcessEventMomentsRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "event_id": "event_123"
+            }
+        }
+
+
+class ProcessMomentsBatchRequest(BaseModel):
+    """Request model for processing multiple moments in batch"""
+    moments: List[ProcessMomentRequest] = Field(..., description="List of moments to process")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "moments": [
+                    {
+                        "image_url": "https://storage.googleapis.com/bucket/moment1.jpg",
+                        "moment_id": "moment_001",
+                        "event_id": "event_123",
+                        "user_id": "user_456",
+                        "match_faces": True
+                    },
+                    {
+                        "image_url": "https://storage.googleapis.com/bucket/moment2.jpg",
+                        "moment_id": "moment_002",
+                        "event_id": "event_123",
+                        "match_faces": False
+                    }
+                ]
             }
         }
 

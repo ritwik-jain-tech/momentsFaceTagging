@@ -14,7 +14,8 @@ from app.models.face_embeddings import (
     MomentFaceEmbedding,
     FaceMatch
 )
-from app.models.requests import ProcessSelfieRequest, ProcessMomentRequest, ProcessEventMomentsRequest
+from app.models.requests import ProcessSelfieRequest, ProcessMomentRequest, ProcessEventMomentsRequest, ProcessMomentsBatchRequest
+from app.models.responses import ProcessMomentsBatchResponse, BatchMomentResult
 from app.core.face_recognition_insightface import InsightFaceRecognitionService
 from app.core.firestore_client import FirestoreClient
 
@@ -252,6 +253,159 @@ async def process_moment_for_faces(
     except Exception as e:
         logger.error(f"Moment processing failed: {e}")
         raise HTTPException(status_code=500, detail=f"Moment processing failed: {str(e)}")
+
+
+@router.post("/moments/batch", response_model=ProcessMomentsBatchResponse)
+async def process_moments_batch(
+    request: ProcessMomentsBatchRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Process multiple moments in batch for face tagging
+    More efficient than processing moments individually
+    """
+    import time
+    start_time = time.time()
+    
+    try:
+        if not face_recognition_service:
+            raise HTTPException(status_code=500, detail="Face recognition service not available")
+        
+        if not firestore_client:
+            raise HTTPException(status_code=500, detail="Firestore client not available")
+        
+        if not request.moments:
+            raise HTTPException(status_code=400, detail="No moments provided for processing")
+        
+        logger.info(f"Processing batch of {len(request.moments)} moments")
+        
+        results = []
+        successful_count = 0
+        failed_count = 0
+        
+        # Process each moment in the batch
+        for moment_request in request.moments:
+            try:
+                logger.info(f"Processing moment {moment_request.moment_id} in batch")
+                
+                # Step 1: Process moment and extract face embeddings
+                result = await face_recognition_service.process_moment_for_faces(
+                    str(moment_request.image_url), 
+                    moment_request.moment_id,
+                    moment_request.event_id
+                )
+                
+                if not result.success:
+                    results.append(BatchMomentResult(
+                        moment_id=moment_request.moment_id,
+                        success=False,
+                        message=result.message,
+                        face_count=0,
+                        matches_found=0,
+                        error=result.message
+                    ))
+                    failed_count += 1
+                    continue
+                
+                # Step 2: Store moment face embedding
+                moment_embedding = MomentFaceEmbedding(
+                    moment_id=moment_request.moment_id,
+                    event_id=moment_request.event_id,
+                    face_embeddings=result.embeddings or [],  # Use empty list if None
+                    face_count=result.face_count,
+                    moment_url=str(moment_request.image_url)
+                )
+                
+                # Store in Firestore
+                await firestore_client.store_moment_face_embedding(moment_embedding)
+                logger.info(f"Stored moment face embedding for moment {moment_request.moment_id}")
+                
+                # Step 3: Perform face matching if requested
+                matches = []
+                if moment_request.match_faces:
+                    logger.info(f"Performing face matching for moment {moment_request.moment_id} in event {moment_request.event_id}")
+                    matches = await face_recognition_service.match_moment_against_event_users(
+                        moment_embedding,
+                        moment_request.event_id,
+                        firestore_client
+                    )
+                    logger.info(f"Found {len(matches)} matches for moment {moment_request.moment_id}")
+                    
+                    # Store matches if any found
+                    if matches:
+                        await firestore_client.store_face_matches(moment_request.moment_id, matches)
+                        logger.info(f"Stored {len(matches)} face matches for moment {moment_request.moment_id}")
+                        
+                        # Update moment's taggedUserIds with found matches
+                        logger.info(f"Updating moment {moment_request.moment_id} taggedUserIds with {len(matches)} matches")
+                        
+                        # Get current taggedUserIds for this moment
+                        current_tagged_users = await firestore_client.get_moment_tagged_users(moment_request.moment_id)
+                        logger.info(f"Current tagged users for moment {moment_request.moment_id}: {current_tagged_users}")
+                        
+                        # Extract unique user IDs from matches
+                        matched_user_ids = list(set([match.user_id for match in matches]))
+                        logger.info(f"Matched user IDs: {matched_user_ids}")
+                        
+                        # Add new users to taggedUserIds (avoid duplicates)
+                        updated_tagged_users = current_tagged_users.copy()
+                        for user_id in matched_user_ids:
+                            if user_id not in updated_tagged_users:
+                                updated_tagged_users.append(user_id)
+                                logger.info(f"Adding user {user_id} to moment {moment_request.moment_id} taggedUserIds")
+                        
+                        # Update the moment in Firestore
+                        if len(updated_tagged_users) != len(current_tagged_users):
+                            success = await firestore_client.update_moment_tagged_users(
+                                moment_request.moment_id, 
+                                updated_tagged_users
+                            )
+                            
+                            if success:
+                                logger.info(f"Successfully updated moment {moment_request.moment_id} taggedUserIds")
+                            else:
+                                logger.warning(f"Failed to update moment {moment_request.moment_id} taggedUserIds")
+                
+                # Update result with matches
+                result.matches = matches
+                
+                results.append(BatchMomentResult(
+                    moment_id=moment_request.moment_id,
+                    success=True,
+                    message=f"Successfully processed moment with {result.face_count} faces",
+                    face_count=result.face_count,
+                    matches_found=len(matches),
+                    error=None
+                ))
+                successful_count += 1
+                
+            except Exception as e:
+                logger.error(f"Failed to process moment {moment_request.moment_id}: {e}")
+                results.append(BatchMomentResult(
+                    moment_id=moment_request.moment_id,
+                    success=False,
+                    message=f"Processing failed: {str(e)}",
+                    face_count=0,
+                    matches_found=0,
+                    error=str(e)
+                ))
+                failed_count += 1
+        
+        processing_time = time.time() - start_time
+        
+        logger.info(f"Batch processing completed: {successful_count} successful, {failed_count} failed, {processing_time:.2f}s")
+        
+        return ProcessMomentsBatchResponse(
+            total_moments=len(request.moments),
+            successful_moments=successful_count,
+            failed_moments=failed_count,
+            results=results,
+            processing_time_seconds=processing_time
+        )
+        
+    except Exception as e:
+        logger.error(f"Batch moment processing failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Batch moment processing failed: {str(e)}")
 
 
 @router.post("/moment/match", response_model=List[FaceMatch])
