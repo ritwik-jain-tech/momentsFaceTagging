@@ -55,6 +55,9 @@ async def process_selfie_for_user(
             return result
         
         # Step 2: Store user face embedding
+        if not result.embeddings or len(result.embeddings) == 0:
+            raise HTTPException(status_code=400, detail="No face embeddings found in selfie")
+            
         user_embedding = UserFaceEmbedding(
             user_id=request.user_id,
             event_id=request.event_id,
@@ -171,7 +174,7 @@ async def process_moment_for_faces(
         moment_embedding = MomentFaceEmbedding(
             moment_id=request.moment_id,
             event_id=request.event_id,
-            face_embeddings=result.embeddings,
+            face_embeddings=result.embeddings or [],  # Use empty list if None
             face_count=result.face_count,
             moment_url=str(request.image_url)
         )
@@ -459,7 +462,7 @@ async def process_event_moments(
                 moment_embedding = MomentFaceEmbedding(
                     moment_id=moment_id,
                     event_id=request.event_id,
-                    face_embeddings=result.embeddings,
+                    face_embeddings=result.embeddings or [],  # Use empty list if None
                     face_count=result.face_count,
                     moment_url=str(image_url)
                 )

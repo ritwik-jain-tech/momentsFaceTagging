@@ -31,7 +31,7 @@ class MomentFaceEmbedding(BaseModel):
     """Moment face embedding model - one per moment"""
     moment_id: str = Field(..., description="Unique moment identifier")
     event_id: str = Field(..., description="Event ID for the moment")
-    face_embeddings: List[Dict[str, Any]] = Field(..., description="List of face embeddings in the moment")
+    face_embeddings: List[Dict[str, Any]] = Field(default_factory=list, description="List of face embeddings in the moment")
     face_count: int = Field(..., description="Total number of faces detected")
     processed_at: datetime = Field(default_factory=datetime.utcnow, description="Processing timestamp")
     moment_url: str = Field(..., description="URL of the moment image")

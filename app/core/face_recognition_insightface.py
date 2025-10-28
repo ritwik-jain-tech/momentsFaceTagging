@@ -1068,7 +1068,7 @@ class InsightFaceRecognitionService:
                 return []
             
             matches = []
-            
+            logger.info(f"Event moments count: {len(event_moments)}")
             for moment_embedding in event_moments:
                 try:
                     # Match user embedding against all faces in this moment
