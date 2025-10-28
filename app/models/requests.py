@@ -28,8 +28,8 @@ class ProcessMomentRequest(BaseModel):
     """Request model for processing moment images"""
     image_url: HttpUrl = Field(..., description="URL of the moment image")
     moment_id: str = Field(..., description="Moment ID for the image")
-    user_id: str = Field(..., description="User ID who uploaded the moment")
     event_id: str = Field(..., description="Event ID for the moment")
+    user_id: Optional[str] = Field(None, description="User ID who uploaded the moment (optional)")
     match_faces: bool = Field(False, description="Whether to match faces against existing user embeddings")
     
     class Config:
@@ -37,8 +37,8 @@ class ProcessMomentRequest(BaseModel):
             "example": {
                 "image_url": "https://storage.googleapis.com/bucket/moment.jpg",
                 "moment_id": "moment_789",
-                "user_id": "user_456",
                 "event_id": "event_123",
+                "user_id": "user_456",
                 "match_faces": True
             }
         }
