@@ -459,7 +459,7 @@ class FirestoreClient:
             # Store in user_face_embeddings collection using async executor
             await asyncio.get_event_loop().run_in_executor(
                 self.executor,
-                lambda: self.db.collection('user_face_embeddings').document(user_embedding.user_id).set(embedding_data)
+                lambda: self.db.collection('user_face_embeddings').document(user_embedding.user_id+'_'+user_embedding.event_id).set(embedding_data)
             )
             
             logger.info(f"Successfully stored user face embedding for user {user_embedding.user_id}")
