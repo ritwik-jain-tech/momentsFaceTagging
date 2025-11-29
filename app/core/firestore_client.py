@@ -722,3 +722,38 @@ class FirestoreClient:
         except Exception as e:
             logger.error(f"Failed to update tagged users for moment {moment_id}: {e}")
             return False
+    
+    async def update_moment_media_urls(self, moment_id: str, media_url: str, feed_url: str) -> bool:
+        """
+        Update moment media URLs (media.url and media.feedUrl)
+        
+        Args:
+            moment_id: The moment ID
+            media_url: High quality JPEG URL (for media.url)
+            feed_url: Compressed WebP URL (for media.feedUrl)
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            logger.info(f"Updating media URLs for moment {moment_id}")
+            logger.info(f"  media.url: {media_url}")
+            logger.info(f"  media.feedUrl: {feed_url}")
+            
+            # Update the moment document in Firestore
+            # Using nested field update for media object
+            await asyncio.get_event_loop().run_in_executor(
+                self.executor,
+                lambda: self.db.collection('moments').document(moment_id).update({
+                    'media.url': media_url,
+                    'media.feedUrl': feed_url,
+                    'updated_at': time.time()
+                })
+            )
+            
+            logger.info(f"Successfully updated media URLs for moment {moment_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update media URLs for moment {moment_id}: {e}")
+            return False

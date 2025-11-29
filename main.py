@@ -17,6 +17,7 @@ from app.api.v1.router import api_router
 from app.core.face_recognition_insightface import InsightFaceRecognitionService
 from app.core.firestore_client import FirestoreClient
 from app.core.storage_client import StorageClient
+from app.core.image_compression import ImageCompressionService
 
 # Configure logging
 logging.basicConfig(
@@ -29,12 +30,13 @@ logger = logging.getLogger(__name__)
 face_recognition_service: Optional[InsightFaceRecognitionService] = None
 firestore_client: Optional[FirestoreClient] = None
 storage_client: Optional[StorageClient] = None
+image_compression_service: Optional[ImageCompressionService] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown"""
-    global face_recognition_service, firestore_client, storage_client
+    global face_recognition_service, firestore_client, storage_client, image_compression_service
     
     # Startup
     logger.info("Starting Moments Face Tagging Service...")
@@ -66,12 +68,25 @@ async def lifespan(app: FastAPI):
             logger.error(f"Failed to initialize storage client: {e}")
             storage_client = None
         
+        logger.info("Initializing image compression service...")
+        try:
+            image_compression_service = ImageCompressionService()
+            logger.info("Image compression service initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize image compression service: {e}")
+            image_compression_service = None
+        
         # Set global services in face embeddings endpoints
-        if face_recognition_service and firestore_client:
-            from app.api.v1.endpoints import face_embeddings
+        from app.api.v1.endpoints import face_embeddings
+        if face_recognition_service:
             face_embeddings.face_recognition_service = face_recognition_service
+        if firestore_client:
             face_embeddings.firestore_client = firestore_client
-            logger.info("Global services set in endpoints")
+        if storage_client:
+            face_embeddings.storage_client = storage_client
+        if image_compression_service:
+            face_embeddings.image_compression_service = image_compression_service
+        logger.info("Global services set in endpoints")
         
         logger.info("Service initialization completed (some services may have failed)")
         

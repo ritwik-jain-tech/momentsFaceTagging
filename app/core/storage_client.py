@@ -36,7 +36,7 @@ class StorageClient:
             self.client = get_storage_client()
             
             # Get bucket name from environment or use default
-            bucket_name = os.getenv("STORAGE_BUCKET", "moments-storage")
+            bucket_name = os.getenv("STORAGE_BUCKET", "momentslive")
             self.bucket = self.client.bucket(bucket_name)
             
             logger.info(f"Cloud Storage client initialized with bucket: {bucket_name}")
@@ -50,32 +50,40 @@ class StorageClient:
         Upload image to Cloud Storage
         """
         try:
-            logger.info(f"Uploading image to: {file_path}")
+            if not self.bucket:
+                logger.error("Storage bucket not initialized")
+                return None
+            
+            if not image_data:
+                logger.error(f"Cannot upload empty image data to {file_path}")
+                return None
+            
+            logger.info(f"Uploading image to: {file_path} (size: {len(image_data)} bytes, content_type: {content_type})")
             
             # Create blob
             blob = self.bucket.blob(file_path)
             
-            # Upload with metadata
-            blob.upload_from_string(
-                image_data,
-                content_type=content_type,
-                metadata={
-                    'uploaded_at': str(time.time()),
-                    'service': 'moments-face-tagging'
-                }
-            )
+            # Set metadata (custom metadata, not content_type)
+            blob.metadata = {
+                'uploaded_at': str(time.time()),
+                'service': 'moments-face-tagging'
+            }
             
-            # Make blob publicly accessible
-            blob.make_public()
+            # Upload the data with content_type parameter
+            blob.upload_from_string(image_data, content_type=content_type)
             
-            # Get public URL
-            public_url = blob.public_url
+            # Generate CDN URL (matching Java service format)
+            # Bucket has uniform bucket-level access enabled, so no need to call make_public()
+            cdn_domain = os.getenv("CDN_DOMAIN", "images.moments.live")
+            public_url = f"https://{cdn_domain}/{file_path}"
             
             logger.info(f"Successfully uploaded image: {public_url}")
             return public_url
             
         except Exception as e:
-            logger.error(f"Failed to upload image: {e}")
+            logger.error(f"Failed to upload image to {file_path}: {e}", exc_info=True)
+            import traceback
+            logger.error(f"Upload traceback: {traceback.format_exc()}")
             return None
     
     async def download_image(self, image_url: str) -> Optional[bytes]:
