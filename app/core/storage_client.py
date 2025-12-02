@@ -69,6 +69,10 @@ class StorageClient:
                 'service': 'moments-face-tagging'
             }
             
+            # Set cache-control headers to force CDN revalidation
+            # "no-cache" means CDN must revalidate with origin before serving cached content
+            blob.cache_control = "no-cache, must-revalidate"
+            
             # Upload the data with content_type parameter
             blob.upload_from_string(image_data, content_type=content_type)
             

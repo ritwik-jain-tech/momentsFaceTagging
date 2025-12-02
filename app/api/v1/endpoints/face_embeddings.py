@@ -1650,11 +1650,27 @@ async def rotate_moment_image(moment_id: str):
             logger.error(f"Failed to rotate image for moment {moment_id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to rotate image: {str(e)}")
         
-        # Generate file paths (same filename, different extensions if needed)
-        jpeg_path, webp_path = image_compression_service.generate_compressed_file_paths(
-            str(image_url),
-            moment_id=moment_id
-        )
+        # Generate file paths with timestamp to force CDN cache invalidation
+        # Add timestamp to filename to ensure CDN serves the new rotated image
+        import time
+        from urllib.parse import urlparse
+        from pathlib import Path
+        
+        # Parse the original URL to get the base filename
+        parsed_url = urlparse(str(image_url))
+        original_path = parsed_url.path.lstrip('/')
+        path_obj = Path(original_path)
+        
+        # Add timestamp to filename to force cache refresh
+        timestamp = int(time.time() * 1000)  # milliseconds
+        base_name = path_obj.stem  # filename without extension
+        extension = path_obj.suffix or '.jpg'
+        jpeg_path = f"{base_name}_r{timestamp}{extension}"
+        
+        # Generate WebP path similarly
+        webp_path = f"{base_name}_r{timestamp}.webp"
+        
+        logger.info(f"Generated cache-busting paths - JPEG: {jpeg_path}, WebP: {webp_path}")
         
         # Upload rotated image to media.url path
         logger.info(f"Uploading rotated image for moment {moment_id} to path: {jpeg_path}")
