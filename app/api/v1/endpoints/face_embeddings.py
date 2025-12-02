@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 import logging
+from io import BytesIO
 
 from app.models.face_embeddings import (
     FaceEmbeddingResponse, 
@@ -1538,3 +1539,202 @@ async def remove_user_tags_from_event(
     except Exception as e:
         logger.error(f"Remove user tags failed: {e}")
         raise HTTPException(status_code=500, detail=f"Remove user tags failed: {str(e)}")
+
+
+@router.post("/moment/{moment_id}/rotate")
+async def rotate_moment_image(moment_id: str):
+    """
+    Rotate moment image 90 degrees clockwise and re-upload to media.url and media.feedUrl
+    
+    Args:
+        moment_id: The moment ID to rotate image for
+    
+    Returns:
+        JSON response with rotation results
+    """
+    try:
+        if not storage_client:
+            logger.error("Storage client not available for image rotation")
+            raise HTTPException(status_code=500, detail="Storage client not available")
+        
+        if not image_compression_service:
+            logger.error("Image compression service not available for image rotation")
+            raise HTTPException(status_code=500, detail="Image compression service not available")
+        
+        if not firestore_client:
+            logger.error("Firestore client not available for image rotation")
+            raise HTTPException(status_code=500, detail="Firestore client not available")
+        
+        logger.info(f"Starting image rotation for moment {moment_id}")
+        
+        # Get moment from Firestore
+        try:
+            moment_doc = await firestore_client.get_moment_by_id(moment_id)
+            if not moment_doc:
+                logger.error(f"Moment {moment_id} not found in Firestore")
+                raise HTTPException(status_code=404, detail=f"Moment {moment_id} not found")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to get moment {moment_id} from Firestore: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to get moment: {str(e)}")
+        
+        # Get image URL from moment
+        media = moment_doc.get('media', {})
+        if not isinstance(media, dict):
+            logger.error(f"Invalid media structure for moment {moment_id}")
+            raise HTTPException(status_code=400, detail="Invalid media structure in moment")
+        
+        image_url = media.get('url') or media.get('imageUrl')
+        feed_url = media.get('feedUrl')
+        
+        if not image_url:
+            logger.error(f"No image URL found for moment {moment_id}")
+            raise HTTPException(status_code=400, detail="No image URL found in moment.media.url")
+        
+        logger.info(f"Rotating image for moment {moment_id}, image_url: {image_url}")
+        
+        # Download original image
+        try:
+            original_image_data = await image_compression_service.download_image_bytes(str(image_url))
+        except Exception as e:
+            logger.error(f"Failed to download image for moment {moment_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to download image: {str(e)}")
+        
+        if not original_image_data:
+            logger.error(f"Failed to download image for moment {moment_id}: empty data")
+            raise HTTPException(status_code=500, detail="Failed to download image: empty data")
+        
+        logger.info(f"Downloaded image for moment {moment_id}, size: {len(original_image_data)} bytes")
+        
+        # Rotate image 90 degrees clockwise
+        try:
+            from PIL import Image, ImageOps
+            image = Image.open(BytesIO(original_image_data))
+            image.load()
+            # Get original format before any transformations
+            image_format = image.format or 'JPEG'
+            logger.info(f"Original image format: {image_format}")
+            # Apply EXIF orientation first
+            image = ImageOps.exif_transpose(image)
+            logger.info(f"Image size after EXIF correction: {image.size}")
+            # Rotate 90 degrees clockwise using transpose
+            # ROTATE_270 = 270 degrees counter-clockwise = 90 degrees clockwise
+            rotated_image = image.transpose(Image.ROTATE_270)
+            logger.info(f"Rotated image 90 degrees clockwise for moment {moment_id}, original size: {image.size}, rotated size: {rotated_image.size}")
+            
+            # Convert to bytes
+            output = BytesIO()
+            if image_format in ('JPEG', 'JPG'):
+                # Convert to RGB if needed
+                if rotated_image.mode != 'RGB':
+                    rotated_image = rotated_image.convert('RGB')
+                rotated_image.save(output, format='JPEG', quality=85, optimize=True)
+                content_type = "image/jpeg"
+            elif image_format == 'PNG':
+                rotated_image.save(output, format='PNG')
+                content_type = "image/png"
+            elif image_format == 'WEBP':
+                rotated_image.save(output, format='WebP', quality=85)
+                content_type = "image/webp"
+            else:
+                # Default to JPEG
+                if rotated_image.mode != 'RGB':
+                    rotated_image = rotated_image.convert('RGB')
+                rotated_image.save(output, format='JPEG', quality=85, optimize=True)
+                content_type = "image/jpeg"
+            
+            rotated_image_data = output.getvalue()
+            logger.info(f"Rotated image size: {len(rotated_image_data)} bytes")
+        except Exception as e:
+            logger.error(f"Failed to rotate image for moment {moment_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to rotate image: {str(e)}")
+        
+        # Generate file paths (same filename, different extensions if needed)
+        jpeg_path, webp_path = image_compression_service.generate_compressed_file_paths(
+            str(image_url),
+            moment_id=moment_id
+        )
+        
+        # Upload rotated image to media.url path
+        logger.info(f"Uploading rotated image for moment {moment_id} to path: {jpeg_path}")
+        try:
+            rotated_url = await storage_client.upload_image(
+                rotated_image_data,
+                jpeg_path,
+                content_type=content_type
+            )
+        except Exception as e:
+            logger.error(f"Failed to upload rotated image for moment {moment_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to upload rotated image: {str(e)}")
+        
+        if not rotated_url:
+            logger.error(f"Failed to upload rotated image for moment {moment_id}: no URL returned")
+            raise HTTPException(status_code=500, detail="Failed to upload rotated image: no URL returned")
+        
+        logger.info(f"Successfully uploaded rotated image: {rotated_url}")
+        
+        # If feedUrl exists, also create and upload WebP version
+        rotated_feed_url = None
+        if feed_url:
+            try:
+                # Create WebP version of rotated image
+                webp_data = image_compression_service.compress_to_webp_feed(rotated_image_data)
+                if webp_data:
+                    logger.info(f"Uploading rotated WebP image for moment {moment_id} to path: {webp_path}")
+                    rotated_feed_url = await storage_client.upload_image(
+                        webp_data,
+                        webp_path,
+                        content_type="image/webp"
+                    )
+                    if rotated_feed_url:
+                        logger.info(f"Successfully uploaded rotated WebP image: {rotated_feed_url}")
+                    else:
+                        logger.error(f"Failed to upload rotated WebP image for moment {moment_id}")
+                else:
+                    logger.error(f"Failed to create WebP version of rotated image for moment {moment_id}")
+            except Exception as e:
+                logger.error(f"Failed to create/upload WebP version for moment {moment_id}: {e}", exc_info=True)
+                # Don't fail if WebP creation fails, just log it
+        
+        # Update moment media URLs in Firestore
+        logger.info(f"Updating moment {moment_id} media URLs with rotated images")
+        logger.info(f"  media.url: {rotated_url}")
+        logger.info(f"  media.feedUrl: {rotated_feed_url if rotated_feed_url else feed_url}")
+        try:
+            update_success = await firestore_client.update_moment_media_urls(
+                moment_id,
+                rotated_url,
+                rotated_feed_url if rotated_feed_url else feed_url
+            )
+            
+            if update_success:
+                logger.info(f"Successfully updated media URLs for moment {moment_id}")
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "success": True,
+                        "message": f"Successfully rotated and re-uploaded image for moment {moment_id}",
+                        "data": {
+                            "moment_id": moment_id,
+                            "media_url": rotated_url,
+                            "feed_url": rotated_feed_url if rotated_feed_url else feed_url,
+                            "original_url": image_url,
+                            "original_feed_url": feed_url
+                        }
+                    }
+                )
+            else:
+                logger.error(f"Failed to update media URLs in Firestore for moment {moment_id}")
+                raise HTTPException(status_code=500, detail="Failed to update media URLs in Firestore")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Exception updating media URLs in Firestore for moment {moment_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to update media URLs: {str(e)}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Image rotation failed for moment {moment_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Image rotation failed: {str(e)}")
