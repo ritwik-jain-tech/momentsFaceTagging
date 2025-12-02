@@ -43,52 +43,73 @@ async def process_selfie_for_user(
     """
     try:
         if not face_recognition_service:
+            logger.error("Face recognition service not available for selfie processing")
             raise HTTPException(status_code=500, detail="Face recognition service not available")
         
         if not firestore_client:
+            logger.error("Firestore client not available for selfie processing")
             raise HTTPException(status_code=500, detail="Firestore client not available")
         
         logger.info(f"Processing selfie for user {request.user_id} in event {request.event_id}")
         
         # Step 1: Process selfie and extract face embedding
-        result = await face_recognition_service.process_selfie_for_user(
-            str(request.image_url), 
-            request.user_id
-        )
+        try:
+            result = await face_recognition_service.process_selfie_for_user(
+                str(request.image_url), 
+                request.user_id
+            )
+        except Exception as e:
+            logger.error(f"Failed to process selfie for user {request.user_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to process selfie: {str(e)}")
         
         if not result.success:
+            logger.error(f"Selfie processing failed for user {request.user_id}: {result.message}")
             return result
         
         # Step 2: Store user face embedding
         if not result.embeddings or len(result.embeddings) == 0:
+            logger.error(f"No face embeddings found in selfie for user {request.user_id}")
             raise HTTPException(status_code=400, detail="No face embeddings found in selfie")
-            
-        user_embedding = UserFaceEmbedding(
-            user_id=request.user_id,
-            event_id=request.event_id,
-            embedding=result.embeddings[0]['embedding'],
-            quality_score=result.embeddings[0]['quality_score'],
-            detection_score=result.embeddings[0]['detection_score'],
-            bbox=result.embeddings[0]['bbox'],
-            age=result.embeddings[0].get('age'),
-            gender=result.embeddings[0].get('gender'),
-            selfie_url=str(request.image_url)
-        )
+        
+        try:
+            user_embedding = UserFaceEmbedding(
+                user_id=request.user_id,
+                event_id=request.event_id,
+                embedding=result.embeddings[0]['embedding'],
+                quality_score=result.embeddings[0]['quality_score'],
+                detection_score=result.embeddings[0]['detection_score'],
+                bbox=result.embeddings[0]['bbox'],
+                age=result.embeddings[0].get('age'),
+                gender=result.embeddings[0].get('gender'),
+                selfie_url=str(request.image_url)
+            )
+        except Exception as e:
+            logger.error(f"Failed to create UserFaceEmbedding for user {request.user_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to create user embedding: {str(e)}")
         
         # Store in Firestore
-        await firestore_client.store_user_face_embedding(user_embedding)
-        logger.info(f"Stored user face embedding for user {request.user_id}")
+        try:
+            await firestore_client.store_user_face_embedding(user_embedding)
+            logger.info(f"Stored user face embedding for user {request.user_id}")
+        except Exception as e:
+            logger.error(f"Failed to store user face embedding in Firestore for user {request.user_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to store user embedding: {str(e)}")
         
         # Step 3: Perform face matching if requested
         matches = []
         if request.face_matching:
             logger.info(f"Performing face matching for user {request.user_id} in event {request.event_id}")
-            matches = await face_recognition_service.match_user_against_event_moments(
-                user_embedding, 
-                request.event_id,
-                firestore_client
-            )
-            logger.info(f"Found {len(matches)} matches for user {request.user_id}")
+            try:
+                matches = await face_recognition_service.match_user_against_event_moments(
+                    user_embedding, 
+                    request.event_id,
+                    firestore_client
+                )
+                logger.info(f"Found {len(matches)} matches for user {request.user_id}")
+            except Exception as e:
+                logger.error(f"Failed to perform face matching for user {request.user_id} in event {request.event_id}: {e}", exc_info=True)
+                # Don't fail the entire request if matching fails
+                matches = []
             
             # Step 4: Update moments.taggedUserIds with found matches
             if matches:
@@ -158,34 +179,52 @@ async def process_moment_for_faces(
     """
     try:
         if not face_recognition_service:
+            logger.error("Face recognition service not available for moment processing")
             raise HTTPException(status_code=500, detail="Face recognition service not available")
         
         if not firestore_client:
+            logger.error("Firestore client not available for moment processing")
             raise HTTPException(status_code=500, detail="Firestore client not available")
         
         logger.info(f"Processing moment {request.moment_id} in event {request.event_id}")
         
         # Step 1: Process moment and extract face embeddings
-        result = await face_recognition_service.process_moment_for_faces(
-            str(request.image_url), 
-            request.moment_id,
-            request.event_id
-        )
+        try:
+            result = await face_recognition_service.process_moment_for_faces(
+                str(request.image_url), 
+                request.moment_id,
+                request.event_id
+            )
+        except Exception as e:
+            logger.error(f"Failed to process moment {request.moment_id} for faces: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to process moment: {str(e)}")
         
         if not result.success:
+            logger.error(f"Moment processing failed for moment {request.moment_id}: {result.message}")
             return result
         
         # Step 1.5: Compress and upload images (if services are available)
         if storage_client and image_compression_service:
+            logger.info(f"Compression services available - storage_client: {storage_client is not None}, image_compression_service: {image_compression_service is not None}")
             try:
-                logger.info(f"Starting image compression for moment {request.moment_id}")
+                logger.info(f"Starting image compression for moment {request.moment_id}, image_url: {request.image_url}")
                 
                 # Download original image
-                original_image_data = await image_compression_service.download_image_bytes(str(request.image_url))
+                try:
+                    original_image_data = await image_compression_service.download_image_bytes(str(request.image_url))
+                except Exception as e:
+                    logger.error(f"Failed to download image for compression for moment {request.moment_id}: {e}", exc_info=True)
+                    original_image_data = None
                 
                 if original_image_data:
+                    logger.info(f"Successfully downloaded image for moment {request.moment_id}, size: {len(original_image_data)} bytes")
                     # Check if image is JPEG - skip JPEG compression if not JPEG
-                    is_jpeg = image_compression_service.is_jpeg_image(original_image_data)
+                    try:
+                        is_jpeg = image_compression_service.is_jpeg_image(original_image_data)
+                        logger.info(f"Image format check for moment {request.moment_id}: is_jpeg={is_jpeg}")
+                    except Exception as e:
+                        logger.error(f"Failed to check image format for moment {request.moment_id}: {e}", exc_info=True)
+                        is_jpeg = False
                     
                     if not is_jpeg:
                         logger.info(f"Image is not JPEG format, skipping JPEG compression for moment {request.moment_id}")
@@ -193,7 +232,13 @@ async def process_moment_for_faces(
                     # Create compressed versions
                     # If JPEG: only compress JPEG (if size reduced), skip WebP
                     # If not JPEG: skip JPEG, create WebP
-                    high_quality_jpeg, webp_feed = image_compression_service.compress_both_versions(original_image_data)
+                    try:
+                        high_quality_jpeg, webp_feed = image_compression_service.compress_both_versions(original_image_data)
+                        logger.info(f"Compression results for moment {request.moment_id}: high_quality_jpeg={high_quality_jpeg is not None}, webp_feed={webp_feed is not None}")
+                    except Exception as e:
+                        logger.error(f"Failed to compress images for moment {request.moment_id}: {e}", exc_info=True)
+                        high_quality_jpeg = None
+                        webp_feed = None
                     
                     if is_jpeg:
                         # For JPEG images: only compress JPEG, skip WebP
@@ -204,15 +249,19 @@ async def process_moment_for_faces(
                                 moment_id=request.moment_id
                             )
                             
-                            logger.info(f"Uploading compressed JPEG for moment {request.moment_id}")
-                            high_quality_url = await storage_client.upload_image(
-                                high_quality_jpeg,
-                                jpeg_path,
-                                content_type="image/jpeg"
-                            )
+                            logger.info(f"Uploading compressed JPEG for moment {request.moment_id} to path: {jpeg_path}")
+                            try:
+                                high_quality_url = await storage_client.upload_image(
+                                    high_quality_jpeg,
+                                    jpeg_path,
+                                    content_type="image/jpeg"
+                                )
+                            except Exception as e:
+                                logger.error(f"Exception during JPEG upload for moment {request.moment_id}: {e}", exc_info=True)
+                                high_quality_url = None
                             
                             if not high_quality_url:
-                                logger.warning(f"Failed to upload JPEG for moment {request.moment_id}, will use original URL")
+                                logger.error(f"Failed to upload JPEG for moment {request.moment_id}, will use original URL")
                                 high_quality_url = str(request.image_url)
                         else:
                             # JPEG compression didn't reduce size, use original
@@ -226,16 +275,19 @@ async def process_moment_for_faces(
                         logger.info(f"Updating moment {request.moment_id} media URLs")
                         logger.info(f"  media.url: {high_quality_url}")
                         logger.info(f"  media.feedUrl: {webp_feed_url} (skipped for JPEG)")
-                        update_success = await firestore_client.update_moment_media_urls(
-                            request.moment_id,
-                            high_quality_url,
-                            webp_feed_url
-                        )
-                        
-                        if update_success:
-                            logger.info(f"Successfully updated media URLs for moment {request.moment_id}")
-                        else:
-                            logger.warning(f"Failed to update media URLs in Firestore for moment {request.moment_id}")
+                        try:
+                            update_success = await firestore_client.update_moment_media_urls(
+                                request.moment_id,
+                                high_quality_url,
+                                webp_feed_url
+                            )
+                            
+                            if update_success:
+                                logger.info(f"Successfully updated media URLs for moment {request.moment_id}")
+                            else:
+                                logger.error(f"Failed to update media URLs in Firestore for moment {request.moment_id}")
+                        except Exception as e:
+                            logger.error(f"Exception updating media URLs in Firestore for moment {request.moment_id}: {e}", exc_info=True)
                     else:
                         # For non-JPEG images: create WebP, skip JPEG compression
                         if webp_feed:
@@ -245,12 +297,16 @@ async def process_moment_for_faces(
                                 moment_id=request.moment_id
                             )
                             
-                            logger.info(f"Uploading WebP image for moment {request.moment_id}")
-                            webp_feed_url = await storage_client.upload_image(
-                                webp_feed,
-                                webp_path,
-                                content_type="image/webp"
-                            )
+                            logger.info(f"Uploading WebP image for moment {request.moment_id} to path: {webp_path}")
+                            try:
+                                webp_feed_url = await storage_client.upload_image(
+                                    webp_feed,
+                                    webp_path,
+                                    content_type="image/webp"
+                                )
+                            except Exception as e:
+                                logger.error(f"Exception during WebP upload for moment {request.moment_id}: {e}", exc_info=True)
+                                webp_feed_url = None
                             
                             if webp_feed_url:
                                 # Use original URL for media.url (no JPEG compression for non-JPEG)
@@ -260,52 +316,68 @@ async def process_moment_for_faces(
                                 logger.info(f"Updating moment {request.moment_id} media URLs")
                                 logger.info(f"  media.url: {high_quality_url}")
                                 logger.info(f"  media.feedUrl: {webp_feed_url}")
-                                update_success = await firestore_client.update_moment_media_urls(
-                                    request.moment_id,
-                                    high_quality_url,
-                                    webp_feed_url
-                                )
-                                
-                                if update_success:
-                                    logger.info(f"Successfully updated media URLs for moment {request.moment_id}")
-                                else:
-                                    logger.warning(f"Failed to update media URLs in Firestore for moment {request.moment_id}")
+                                try:
+                                    update_success = await firestore_client.update_moment_media_urls(
+                                        request.moment_id,
+                                        high_quality_url,
+                                        webp_feed_url
+                                    )
+                                    
+                                    if update_success:
+                                        logger.info(f"Successfully updated media URLs for moment {request.moment_id}")
+                                    else:
+                                        logger.error(f"Failed to update media URLs in Firestore for moment {request.moment_id}")
+                                except Exception as e:
+                                    logger.error(f"Exception updating media URLs in Firestore for moment {request.moment_id}: {e}", exc_info=True)
                             else:
-                                logger.warning(f"Failed to upload WebP image for moment {request.moment_id}")
+                                logger.error(f"Failed to upload WebP image for moment {request.moment_id}")
                         else:
-                            logger.warning(f"Failed to compress WebP for moment {request.moment_id}")
+                            logger.error(f"Failed to compress WebP for moment {request.moment_id}")
                 else:
-                    logger.warning(f"Failed to download original image for compression: {request.image_url}")
+                    logger.error(f"Failed to download original image for compression: {request.image_url}")
                     
             except Exception as e:
                 logger.error(f"Error during image compression for moment {request.moment_id}: {e}", exc_info=True)
                 # Don't fail the entire request if compression fails
         else:
-            logger.warning("Image compression services not available, skipping compression")
+            logger.error(f"Image compression services not available - storage_client: {storage_client is not None}, image_compression_service: {image_compression_service is not None}, skipping compression")
         
         # Step 2: Store moment face embedding
-        moment_embedding = MomentFaceEmbedding(
-            moment_id=request.moment_id,
-            event_id=request.event_id,
-            face_embeddings=result.embeddings or [],  # Use empty list if None
-            face_count=result.face_count,
-            moment_url=str(request.image_url)
-        )
+        try:
+            moment_embedding = MomentFaceEmbedding(
+                moment_id=request.moment_id,
+                event_id=request.event_id,
+                face_embeddings=result.embeddings or [],  # Use empty list if None
+                face_count=result.face_count,
+                moment_url=str(request.image_url)
+            )
+        except Exception as e:
+            logger.error(f"Failed to create MomentFaceEmbedding for moment {request.moment_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to create moment embedding: {str(e)}")
         
         # Store in Firestore
-        await firestore_client.store_moment_face_embedding(moment_embedding)
-        logger.info(f"Stored moment face embedding for moment {request.moment_id}")
+        try:
+            await firestore_client.store_moment_face_embedding(moment_embedding)
+            logger.info(f"Stored moment face embedding for moment {request.moment_id}")
+        except Exception as e:
+            logger.error(f"Failed to store moment face embedding in Firestore for moment {request.moment_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to store moment embedding: {str(e)}")
         
         # Step 3: Perform face matching if requested
         matches = []
         if request.match_faces:
             logger.info(f"Performing face matching for moment {request.moment_id} in event {request.event_id}")
-            matches = await face_recognition_service.match_moment_against_event_users(
-                moment_embedding,
-                request.event_id,
-                firestore_client
-            )
-            logger.info(f"Found {len(matches)} matches for moment {request.moment_id}")
+            try:
+                matches = await face_recognition_service.match_moment_against_event_users(
+                    moment_embedding,
+                    request.event_id,
+                    firestore_client
+                )
+                logger.info(f"Found {len(matches)} matches for moment {request.moment_id}")
+            except Exception as e:
+                logger.error(f"Failed to perform face matching for moment {request.moment_id} in event {request.event_id}: {e}", exc_info=True)
+                # Don't fail the entire request if matching fails
+                matches = []
             
             # Store matches if any found
             if matches:
@@ -381,12 +453,15 @@ async def process_moments_batch(
     
     try:
         if not face_recognition_service:
+            logger.error("Face recognition service not available for batch processing")
             raise HTTPException(status_code=500, detail="Face recognition service not available")
         
         if not firestore_client:
+            logger.error("Firestore client not available for batch processing")
             raise HTTPException(status_code=500, detail="Firestore client not available")
         
         if not request.moments:
+            logger.error("No moments provided for batch processing")
             raise HTTPException(status_code=400, detail="No moments provided for processing")
         
         logger.info(f"Processing batch of {len(request.moments)} moments")
@@ -401,13 +476,27 @@ async def process_moments_batch(
                 logger.info(f"Processing moment {moment_request.moment_id} in batch")
                 
                 # Step 1: Process moment and extract face embeddings
-                result = await face_recognition_service.process_moment_for_faces(
-                    str(moment_request.image_url), 
-                    moment_request.moment_id,
-                    moment_request.event_id
-                )
+                try:
+                    result = await face_recognition_service.process_moment_for_faces(
+                        str(moment_request.image_url), 
+                        moment_request.moment_id,
+                        moment_request.event_id
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to process moment {moment_request.moment_id} for faces: {e}", exc_info=True)
+                    results.append(BatchMomentResult(
+                        moment_id=moment_request.moment_id,
+                        success=False,
+                        message=f"Failed to process moment: {str(e)}",
+                        face_count=0,
+                        matches_found=0,
+                        error=str(e)
+                    ))
+                    failed_count += 1
+                    continue
                 
                 if not result.success:
+                    logger.error(f"Moment processing failed for moment {moment_request.moment_id}: {result.message}")
                     results.append(BatchMomentResult(
                         moment_id=moment_request.moment_id,
                         success=False,
@@ -420,29 +509,66 @@ async def process_moments_batch(
                     continue
                 
                 # Step 2: Store moment face embedding
-                moment_embedding = MomentFaceEmbedding(
-                    moment_id=moment_request.moment_id,
-                    event_id=moment_request.event_id,
-                    face_embeddings=result.embeddings or [],  # Use empty list if None
-                    face_count=result.face_count,
-                    moment_url=str(moment_request.image_url)
-                )
+                try:
+                    moment_embedding = MomentFaceEmbedding(
+                        moment_id=moment_request.moment_id,
+                        event_id=moment_request.event_id,
+                        face_embeddings=result.embeddings or [],  # Use empty list if None
+                        face_count=result.face_count,
+                        moment_url=str(moment_request.image_url)
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to create MomentFaceEmbedding for moment {moment_request.moment_id}: {e}", exc_info=True)
+                    results.append(BatchMomentResult(
+                        moment_id=moment_request.moment_id,
+                        success=False,
+                        message=f"Failed to create moment embedding: {str(e)}",
+                        face_count=0,
+                        matches_found=0,
+                        error=str(e)
+                    ))
+                    failed_count += 1
+                    continue
                 
                 # Store in Firestore
-                await firestore_client.store_moment_face_embedding(moment_embedding)
-                logger.info(f"Stored moment face embedding for moment {moment_request.moment_id}")
+                try:
+                    await firestore_client.store_moment_face_embedding(moment_embedding)
+                    logger.info(f"Stored moment face embedding for moment {moment_request.moment_id}")
+                except Exception as e:
+                    logger.error(f"Failed to store moment face embedding in Firestore for moment {moment_request.moment_id}: {e}", exc_info=True)
+                    results.append(BatchMomentResult(
+                        moment_id=moment_request.moment_id,
+                        success=False,
+                        message=f"Failed to store moment embedding: {str(e)}",
+                        face_count=0,
+                        matches_found=0,
+                        error=str(e)
+                    ))
+                    failed_count += 1
+                    continue
                 
                 # Step 2.5: Compress and upload images (if services are available)
                 if storage_client and image_compression_service:
+                    logger.info(f"Compression services available for moment {moment_request.moment_id} - storage_client: {storage_client is not None}, image_compression_service: {image_compression_service is not None}")
                     try:
-                        logger.info(f"Starting image compression for moment {moment_request.moment_id}")
+                        logger.info(f"Starting image compression for moment {moment_request.moment_id}, image_url: {moment_request.image_url}")
                         
                         # Download original image
-                        original_image_data = await image_compression_service.download_image_bytes(str(moment_request.image_url))
+                        try:
+                            original_image_data = await image_compression_service.download_image_bytes(str(moment_request.image_url))
+                        except Exception as e:
+                            logger.error(f"Failed to download image for compression for moment {moment_request.moment_id}: {e}", exc_info=True)
+                            original_image_data = None
                         
                         if original_image_data:
+                            logger.info(f"Successfully downloaded image for moment {moment_request.moment_id}, size: {len(original_image_data)} bytes")
                             # Check if image is JPEG - skip JPEG compression if not JPEG
-                            is_jpeg = image_compression_service.is_jpeg_image(original_image_data)
+                            try:
+                                is_jpeg = image_compression_service.is_jpeg_image(original_image_data)
+                                logger.info(f"Image format check for moment {moment_request.moment_id}: is_jpeg={is_jpeg}")
+                            except Exception as e:
+                                logger.error(f"Failed to check image format for moment {moment_request.moment_id}: {e}", exc_info=True)
+                                is_jpeg = False
                             
                             if not is_jpeg:
                                 logger.info(f"Image is not JPEG format, skipping JPEG compression for moment {moment_request.moment_id}")
@@ -450,7 +576,13 @@ async def process_moments_batch(
                             # Create compressed versions
                             # If JPEG: only compress JPEG (if size reduced), skip WebP
                             # If not JPEG: skip JPEG, create WebP
-                            high_quality_jpeg, webp_feed = image_compression_service.compress_both_versions(original_image_data)
+                            try:
+                                high_quality_jpeg, webp_feed = image_compression_service.compress_both_versions(original_image_data)
+                                logger.info(f"Compression results for moment {moment_request.moment_id}: high_quality_jpeg={high_quality_jpeg is not None}, webp_feed={webp_feed is not None}")
+                            except Exception as e:
+                                logger.error(f"Failed to compress images for moment {moment_request.moment_id}: {e}", exc_info=True)
+                                high_quality_jpeg = None
+                                webp_feed = None
                             
                             if is_jpeg:
                                 # For JPEG images: only compress JPEG, skip WebP
@@ -521,13 +653,13 @@ async def process_moments_batch(
                                 else:
                                     logger.warning(f"Failed to compress WebP for moment {moment_request.moment_id}")
                         else:
-                            logger.warning(f"Failed to download original image for compression: {moment_request.image_url}")
+                            logger.error(f"Failed to download original image for compression: {moment_request.image_url}")
                             
                     except Exception as e:
                         logger.error(f"Error during image compression for moment {moment_request.moment_id}: {e}", exc_info=True)
                         # Don't fail the entire request if compression fails
                 else:
-                    logger.warning("Image compression services not available, skipping compression")
+                    logger.error(f"Image compression services not available for moment {moment_request.moment_id} - storage_client: {storage_client is not None}, image_compression_service: {image_compression_service is not None}, skipping compression")
                 
                 # Step 3: Perform face matching if requested
                 matches = []
@@ -762,17 +894,24 @@ async def process_event_moments(
     """
     try:
         if not face_recognition_service:
+            logger.error("Face recognition service not available for event processing")
             raise HTTPException(status_code=500, detail="Face recognition service not available")
         
         if not firestore_client:
+            logger.error("Firestore client not available for event processing")
             raise HTTPException(status_code=500, detail="Firestore client not available")
         
         logger.info(f"Processing all moments in event {request.event_id}")
         
         # Get all moments for the event
-        moments = await firestore_client.get_eligible_moments(request.event_id)
+        try:
+            moments = await firestore_client.get_eligible_moments(request.event_id)
+        except Exception as e:
+            logger.error(f"Failed to get eligible moments for event {request.event_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to get moments: {str(e)}")
         
         if not moments:
+            logger.warning(f"No moments found for event {request.event_id}")
             return JSONResponse(
                 status_code=404,
                 content={
@@ -790,14 +929,14 @@ async def process_event_moments(
             try:
                 moment_id = moment.get('moment_id')
                 if not moment_id:
-                    logger.warning(f"Moment missing ID: {moment}")
+                    logger.error(f"Moment missing ID: {moment}")
                     continue
                 
                 # Get image URL from moment
                 image_url = moment.get('image_url')
                 
                 if not image_url:
-                    logger.warning(f"No image URL found for moment {moment_id}")
+                    logger.error(f"No image URL found for moment {moment_id}")
                     failed_moments.append({
                         'moment_id': moment_id,
                         'error': 'No image URL found'
@@ -808,13 +947,22 @@ async def process_event_moments(
                 logger.info(f"Processing moment {moment_id} in event {request.event_id}")
                 
                 # Step 1: Process moment and extract face embeddings
-                result = await face_recognition_service.process_moment_for_faces(
-                    str(image_url), 
-                    moment_id,
-                    request.event_id
-                )
+                try:
+                    result = await face_recognition_service.process_moment_for_faces(
+                        str(image_url), 
+                        moment_id,
+                        request.event_id
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to process moment {moment_id} for faces: {e}", exc_info=True)
+                    failed_moments.append({
+                        'moment_id': moment_id,
+                        'error': f"Failed to process moment: {str(e)}"
+                    })
+                    continue
                 
                 if not result.success:
+                    logger.error(f"Moment processing failed for moment {moment_id}: {result.message}")
                     failed_moments.append({
                         'moment_id': moment_id,
                         'error': result.message
@@ -822,27 +970,49 @@ async def process_event_moments(
                     continue
                 
                 # Step 2: Store moment face embedding
-                moment_embedding = MomentFaceEmbedding(
-                    moment_id=moment_id,
-                    event_id=request.event_id,
-                    face_embeddings=result.embeddings or [],  # Use empty list if None
-                    face_count=result.face_count,
-                    moment_url=str(image_url)
-                )
+                try:
+                    moment_embedding = MomentFaceEmbedding(
+                        moment_id=moment_id,
+                        event_id=request.event_id,
+                        face_embeddings=result.embeddings or [],  # Use empty list if None
+                        face_count=result.face_count,
+                        moment_url=str(image_url)
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to create MomentFaceEmbedding for moment {moment_id}: {e}", exc_info=True)
+                    failed_moments.append({
+                        'moment_id': moment_id,
+                        'error': f"Failed to create moment embedding: {str(e)}"
+                    })
+                    continue
                 
                 # Store in Firestore
-                await firestore_client.store_moment_face_embedding(moment_embedding)
-                logger.info(f"Stored moment face embedding for moment {moment_id}")
+                try:
+                    await firestore_client.store_moment_face_embedding(moment_embedding)
+                    logger.info(f"Stored moment face embedding for moment {moment_id}")
+                except Exception as e:
+                    logger.error(f"Failed to store moment face embedding in Firestore for moment {moment_id}: {e}", exc_info=True)
+                    failed_moments.append({
+                        'moment_id': moment_id,
+                        'error': f"Failed to store moment embedding: {str(e)}"
+                    })
+                    continue
                 
                 # Step 2.5: Compress and upload images (if services are available)
                 if storage_client and image_compression_service:
+                    logger.info(f"Compression services available for moment {moment_id} - storage_client: {storage_client is not None}, image_compression_service: {image_compression_service is not None}")
                     try:
-                        logger.info(f"Starting image compression for moment {moment_id}")
+                        logger.info(f"Starting image compression for moment {moment_id}, image_url: {image_url}")
                         
                         # Download original image
-                        original_image_data = await image_compression_service.download_image_bytes(str(image_url))
+                        try:
+                            original_image_data = await image_compression_service.download_image_bytes(str(image_url))
+                        except Exception as e:
+                            logger.error(f"Failed to download image for compression for moment {moment_id}: {e}", exc_info=True)
+                            original_image_data = None
                         
                         if original_image_data:
+                            logger.info(f"Successfully downloaded image for moment {moment_id}, size: {len(original_image_data)} bytes")
                             # Check if image is JPEG - skip JPEG compression if not JPEG
                             is_jpeg = image_compression_service.is_jpeg_image(original_image_data)
                             
@@ -923,13 +1093,13 @@ async def process_event_moments(
                                 else:
                                     logger.warning(f"Failed to compress WebP for moment {moment_id}")
                         else:
-                            logger.warning(f"Failed to download original image for compression: {image_url}")
+                            logger.error(f"Failed to download original image for compression: {image_url}")
                             
                     except Exception as e:
                         logger.error(f"Error during image compression for moment {moment_id}: {e}", exc_info=True)
                         # Don't fail the entire request if compression fails
                 else:
-                    logger.warning("Image compression services not available, skipping compression")
+                    logger.error(f"Image compression services not available for moment {moment_id} - storage_client: {storage_client is not None}, image_compression_service: {image_compression_service is not None}, skipping compression")
                 
                 # Step 3: Perform face matching against existing users in the event
                 logger.info(f"Performing face matching for moment {moment_id} in event {request.event_id}")

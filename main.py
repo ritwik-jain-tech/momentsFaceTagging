@@ -73,19 +73,31 @@ async def lifespan(app: FastAPI):
             image_compression_service = ImageCompressionService()
             logger.info("Image compression service initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize image compression service: {e}")
+            logger.error(f"Failed to initialize image compression service: {e}", exc_info=True)
             image_compression_service = None
         
         # Set global services in face embeddings endpoints
         from app.api.v1.endpoints import face_embeddings
         if face_recognition_service:
             face_embeddings.face_recognition_service = face_recognition_service
+            logger.info("Face recognition service set in endpoints")
+        else:
+            logger.error("Face recognition service is None, not setting in endpoints")
         if firestore_client:
             face_embeddings.firestore_client = firestore_client
+            logger.info("Firestore client set in endpoints")
+        else:
+            logger.error("Firestore client is None, not setting in endpoints")
         if storage_client:
             face_embeddings.storage_client = storage_client
+            logger.info("Storage client set in endpoints")
+        else:
+            logger.error("Storage client is None, not setting in endpoints")
         if image_compression_service:
             face_embeddings.image_compression_service = image_compression_service
+            logger.info("Image compression service set in endpoints")
+        else:
+            logger.error("Image compression service is None, not setting in endpoints")
         logger.info("Global services set in endpoints")
         
         logger.info("Service initialization completed (some services may have failed)")

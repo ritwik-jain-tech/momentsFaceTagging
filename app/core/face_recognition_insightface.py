@@ -11,7 +11,7 @@ from insightface.app import FaceAnalysis
 from typing import List, Dict, Any, Tuple, Optional
 import logging
 import os
-from PIL import Image
+from PIL import Image, ImageOps
 import requests
 from io import BytesIO
 import asyncio
@@ -147,14 +147,45 @@ class InsightFaceRecognitionService:
             response.raise_for_status()
             
             image_data = response.content
-            image_array = np.frombuffer(image_data, np.uint8)
-            image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
             
-            if image is None:
-                raise ValueError("Failed to decode image")
-            
-            # Convert BGR to RGB for InsightFace
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            # Use PIL to handle EXIF orientation, then convert to numpy array
+            # This ensures images are correctly oriented before face detection
+            try:
+                pil_image = Image.open(BytesIO(image_data))
+                pil_image.load()
+                # Apply EXIF orientation to fix rotation issues
+                pil_image = ImageOps.exif_transpose(pil_image)
+                logger.info(f"Applied EXIF orientation correction for face detection")
+                
+                # Convert PIL image to numpy array (RGB)
+                image = np.array(pil_image)
+                
+                # If image is grayscale, convert to RGB
+                if len(image.shape) == 2:
+                    image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+                elif image.shape[2] == 4:  # RGBA
+                    image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+                elif image.shape[2] == 3 and image.dtype == np.uint8:
+                    # Already RGB, ensure it's the right format
+                    pass
+                else:
+                    # Fallback to OpenCV decode
+                    image_array = np.frombuffer(image_data, np.uint8)
+                    image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+                    if image is None:
+                        raise ValueError("Failed to decode image")
+                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            except Exception as pil_error:
+                logger.warning(f"Failed to use PIL for EXIF handling, falling back to OpenCV: {pil_error}")
+                # Fallback to OpenCV if PIL fails
+                image_array = np.frombuffer(image_data, np.uint8)
+                image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+                
+                if image is None:
+                    raise ValueError("Failed to decode image")
+                
+                # Convert BGR to RGB for InsightFace
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             
             # Enhanced preprocessing for better face detection
             image = self._enhance_image_quality(image)

@@ -5,7 +5,7 @@ Handles image compression and format conversion for optimized storage and delive
 
 import logging
 from typing import Tuple, Optional
-from PIL import Image
+from PIL import Image, ImageOps
 from io import BytesIO
 import requests
 from urllib.parse import urlparse
@@ -41,13 +41,17 @@ class ImageCompressionService:
                 'User-Agent': 'Mozilla/5.0',
                 'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'
             }
-            response = requests.get(image_url, headers=headers, timeout=30, stream=True)
-            response.raise_for_status()
-            image_data = response.content
-            logger.info(f"Downloaded image: {len(image_data)} bytes")
-            return image_data
+            try:
+                response = requests.get(image_url, headers=headers, timeout=30, stream=True)
+                response.raise_for_status()
+                image_data = response.content
+                logger.info(f"Downloaded image: {len(image_data)} bytes")
+                return image_data
+            except requests.exceptions.RequestException as e:
+                logger.error(f"HTTP error downloading image {image_url}: {e}", exc_info=True)
+                return None
         except Exception as e:
-            logger.error(f"Failed to download image {image_url}: {e}")
+            logger.error(f"Failed to download image {image_url}: {e}", exc_info=True)
             return None
     
     def compress_to_high_quality_jpeg(self, image_data: bytes, 
@@ -76,6 +80,9 @@ class ImageCompressionService:
                 image = Image.open(BytesIO(image_data))
                 # Load the image to ensure it's fully decoded
                 image.load()
+                # Apply EXIF orientation to fix rotation issues
+                image = ImageOps.exif_transpose(image)
+                logger.info(f"Applied EXIF orientation correction to image")
             except Exception as load_error:
                 logger.error(f"Failed to open/load image: {load_error}", exc_info=True)
                 return None
@@ -98,6 +105,7 @@ class ImageCompressionService:
             # Try compressing, reducing quality if size doesn't reduce
             for attempt in range(3):
                 output = BytesIO()
+                # Save image (EXIF orientation already applied via exif_transpose)
                 image.save(output, format='JPEG', quality=current_quality, optimize=True)
                 candidate_data = output.getvalue()
                 
@@ -162,6 +170,9 @@ class ImageCompressionService:
                 image = Image.open(BytesIO(image_data))
                 # Load the image to ensure it's fully decoded
                 image.load()
+                # Apply EXIF orientation to fix rotation issues
+                image = ImageOps.exif_transpose(image)
+                logger.info(f"Applied EXIF orientation correction to image")
             except Exception as load_error:
                 logger.error(f"Failed to open/load image: {load_error}", exc_info=True)
                 return None
@@ -187,6 +198,8 @@ class ImageCompressionService:
             
             # Compress to WebP at fixed quality
             output = BytesIO()
+            # Save without EXIF data to prevent orientation issues
+            # EXIF orientation is already applied via exif_transpose, so we don't need to preserve it
             image.save(output, format='WebP', quality=quality, method=6)  # method=6 for best compression
             compressed_data = output.getvalue()
             
